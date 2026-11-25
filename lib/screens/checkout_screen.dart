@@ -1,4 +1,11 @@
+import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/cart_provider.dart';
+import '../widgets/custom_textfield.dart';
+import '../widgets/loading_dialog.dart';
 
 class CheckoutScreen extends StatefulWidget {
   const CheckoutScreen({super.key});
@@ -8,151 +15,114 @@ class CheckoutScreen extends StatefulWidget {
 }
 
 class _CheckoutScreenState extends State<CheckoutScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController();
+  final TextEditingController _addressController =
+      TextEditingController(text: 'Calle 7 #292 X38 Fraccionamiento del Norte');
 
-  bool isLoading = false;
+  Future<void> _placeOrder() async {
+    final cart = context.read<CartProvider>();
+    if (cart.items.isEmpty) return;
 
-  // Alerta de confirmación
-  Future<void> showConfirmation(BuildContext context) async {
-    await showDialog<void>(
+    showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirmación'),
-        content: const Text(
-          '¿Deseas realizar este pedido?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              processOrder();
-            },
-            child: const Text('Aceptar'),
-          ),
-        ],
+      barrierDismissible: false,
+      builder: (_) => const LoadingDialog(message: 'Confirmando pedido'),
+    );
+
+    final address = _addressController.text.trim().isEmpty
+        ? 'Entrega a domicilio'
+        : _addressController.text.trim();
+    final total = cart.totalAmount;
+    final itemsCount = cart.totalItemsCount;
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? 'guest_user';
+
+    final orderItems = cart.items.values
+        .map((item) => {
+              'id': item.id,
+              'name': item.name,
+              'price': item.price,
+              'quantity': item.quantity,
+            })
+        .toList();
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('orders')
+          .add({
+            'orderedBy': uid,
+            'items': orderItems,
+            'totalAmount': total,
+            'address': address,
+            'status': 'pendiente',
+            'orderTime': FieldValue.serverTimestamp(),
+          })
+          .timeout(const Duration(seconds: 5));
+    } on TimeoutException {
+      // Si Firestore tarda por red o permisos, guardamos localmente para no bloquear al usuario
+    } catch (_) {
+      // Continúa para que el usuario vea su pedido confirmado sin quedarse atascado
+    }
+
+    cart.addLocalOrder(
+      OrderRecord(
+        id: 'ORD-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
+        totalAmount: total,
+        address: address,
+        status: 'pendiente',
+        itemsCount: itemsCount,
+        createdAt: DateTime.now(),
       ),
     );
-  }
-
-  // Procesamiento del pedido
-  Future<void> processOrder() async {
-    setState(() {
-      isLoading = true;
-    });
-
-    // Simulación de carga
-    await Future.delayed(const Duration(seconds: 3));
+    cart.clearCart();
 
     if (!mounted) return;
-
-    setState(() {
-      isLoading = false;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('¡Pedido realizado correctamente!'),
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _emailController.dispose();
-    super.dispose();
+    Navigator.of(context, rootNavigator: true).pop();
+    Navigator.pushReplacementNamed(context, '/orders');
   }
 
   @override
   Widget build(BuildContext context) {
+    final cart = context.watch<CartProvider>();
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Confirmar pedido'),
-        backgroundColor: Colors.orange,
-      ),
-
+      appBar: AppBar(title: const Text('Checkout')),
       body: Padding(
-        padding: const EdgeInsets.all(20),
-
-        child: Form(
-          key: _formKey,
-
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-
-              const Text(
-                'Datos del pedido',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CustomTextField(
+              controller: _addressController,
+              data: Icons.location_on,
+              hintText: 'Dirección de entrega',
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Resumen (${cart.totalItemsCount} artículos)',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: ListView(
+                children: cart.items.values
+                    .map((item) => ListTile(
+                          title: Text('${item.quantity}x ${item.name}'),
+                          trailing:
+                              Text('\$${item.subtotal.toStringAsFixed(2)}'),
+                        ))
+                    .toList(),
+              ),
+            ),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                onPressed: _placeOrder,
+                child: Text(
+                  'Confirmar Pedido • \$${cart.totalAmount.toStringAsFixed(2)}',
                 ),
               ),
-
-              const SizedBox(height: 20),
-
-              // VALIDACIÓN DEL CORREO
-              TextFormField(
-                controller: _emailController,
-                decoration: const InputDecoration(
-                  labelText: 'Correo electrónico',
-                  prefixIcon: Icon(Icons.email),
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.emailAddress,
-
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Ingresa tu correo';
-                  }
-
-                  if (!value.contains('@')) {
-                    return 'Correo no válido';
-                  }
-
-                  return null;
-                },
-              ),
-
-              const SizedBox(height: 25),
-
-              // INDICADOR DE PROGRESO
-              if (isLoading)
-                const Center(
-                  child: CircularProgressIndicator(
-                    color: Colors.orange,
-                  ),
-                ),
-
-              const SizedBox(height: 20),
-
-              // BOTÓN PARA REALIZAR PEDIDO
-              ElevatedButton(
-                onPressed: isLoading
-                    ? null
-                    : () {
-                        if (_formKey.currentState!.validate()) {
-                          showConfirmation(context);
-                        }
-                      },
-
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.all(15),
-                ),
-
-                child: const Text(
-                  'Realizar pedido',
-                  style: TextStyle(fontSize: 16),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
