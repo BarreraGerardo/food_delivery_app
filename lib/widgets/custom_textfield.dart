@@ -1,53 +1,64 @@
 import 'package:flutter/material.dart';
 
 class CustomTextField extends StatelessWidget {
-  final TextEditingController controller;
-  final IconData data;
-  final String hintText;
-  final bool isObscure;
+  final TextEditingController? controller;
+  final IconData? data;
+  final String? hintText;
+  final bool isObsecure;
   final bool enabled;
   final TextInputType keyboardType;
+  final int maxLines;
+  final String? Function(String?)? validator;
+  final void Function(String)? onChanged;
 
   const CustomTextField({
     super.key,
-    required this.controller,
-    required this.data,
-    required this.hintText,
-    this.isObscure = false,
+    this.controller,
+    this.data,
+    this.hintText,
+    this.isObsecure = false,
     this.enabled = true,
     this.keyboardType = TextInputType.text,
+    this.maxLines = 1,
+    this.validator,
+    this.onChanged,
   });
 
   @override
   Widget build(BuildContext context) {
+    final effectiveObscure = maxLines > 1 ? false : isObsecure;
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withValues(alpha: 0.15),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 6,
-            offset: const Offset(0, 3),
+            offset: const Offset(0, 2),
           ),
         ],
       ),
-      padding: const EdgeInsets.all(4.0),
-      margin: const EdgeInsets.symmetric(vertical: 8.0),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
       child: TextFormField(
-        enabled: enabled,
         controller: controller,
-        obscureText: isObscure,
+        obscureText: effectiveObscure,
+        enabled: enabled,
         keyboardType: keyboardType,
-        cursorColor: Theme.of(context).primaryColor,
+        maxLines: maxLines,
+        validator: validator,
+        onChanged: onChanged,
         decoration: InputDecoration(
           border: InputBorder.none,
-          prefixIcon: Icon(
-            data,
-            color: Theme.of(context).primaryColor,
-          ),
-          hintText: hintText,
-          hintStyle: const TextStyle(color: Colors.grey),
+          prefixIcon: data != null
+              ? Icon(
+                  data,
+                  color: Theme.of(context).colorScheme.primary,
+                )
+              : null,
+          hintText: hintText ?? '',
+          hintStyle: TextStyle(color: Colors.grey[500]),
         ),
       ),
     );
